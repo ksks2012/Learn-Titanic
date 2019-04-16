@@ -1,0 +1,11 @@
+*.out
+
+*.o
+
+/bak/*
+
+.clang-format
+
+*.dat
+
+*.csv
