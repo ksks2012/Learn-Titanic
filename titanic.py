@@ -9,149 +9,121 @@ from sklearn import linear_model
 
 import sklearn.preprocessing as preprocessing
 
-def read_data():
-    return pd.read_csv("train.csv"), pd.read_csv("test.csv") 
+class Titanic():
 
+    def __init__(self):
+        self.train, self.test = self.read_data()
 
-def set_missing_ages(data):
+        self.rfr = RandomForestRegressor(random_state=0, n_estimators=2000, n_jobs=-1)
+        self.scaler = preprocessing.StandardScaler()
 
-    global rfr
+        self.scale_df = None
 
-    global run
+        self.age_scale_param = None
+        self.fare_scale_param = None
 
-    # 把已有的数值型特征取出来丢进Random Forest Regressor中
-    age_df = data[['Age','Fare', 'Parch', 'SibSp', 'Pclass']]
-
-    #print(age_df)
-
-    #print(age_df[age_df.Age.notna()].values)
-
-    # 乘客分成已知年龄和未知年龄两部分
-    known_age = age_df[age_df.Age.notna()].values
-    unknown_age = age_df[age_df.Age.isna()].values
-
-    # y即目标年龄
-    y = known_age[:, 0]
-
-    # X即特征属性值
     
+    def train_data(self):
+        self.set_missing_age(self.train)
+        self.set_Cabin_type(self.train)
+        self.dummies_df = self.trans_Cabin(self.train)
+        self.scale_df = self.scale_data(self.dummies_df)
+        #self.clf = self.linear(self.scale_df)
+        self.linear(self.scale_df)
 
-    # fit到RandomForestRegressor之中
+    def test_data(self):
+        self.set_missing_age(self.test, self.rfr)
+        self.set_missing_fare(self.test)
+        self.set_Cabin_type(self.test)
+        self.dummies_df = self.trans_Cabin(self.test)
+        self.scale_df = self.scale_data(self.dummies_df, self.scale_df)
+        self.predict_survived(self.scale_df)
 
-    #print(X)
+    def read_data(self):
+        return pd.read_csv("train.csv"), pd.read_csv("test.csv")
 
-    #print(known_age)
-    #rfr = RandomForestRegressor()
-    if(run == 0):
-        X = known_age[:, 1:]
-        rfr.fit(X, y)
-        run = run + 1
-    else :
-        X = unknown_age[:, 1:]
+    def set_missing_age(self, data, rfr = None):
+        
+        age_df = data[['Age','Fare', 'Parch', 'SibSp', 'Pclass']]
+        known_age = age_df[age_df.Age.notna()].values
+        unknown_age = age_df[age_df.Age.isna()].values
 
-    # 用得到的模型进行未知年龄结果预测
-    predictedAges = rfr.predict(unknown_age[:, 1:])
+        y = known_age[:, 0]
+
+        if(rfr == None):
+            X = known_age[:, 1:]
+            self.rfr.fit(X, y)
+        else :
+            X = unknown_age[:, 1:]
+
+        predictedAges = self.rfr.predict(unknown_age[:, 1:])
+        data.loc[ (data.Age.isna()), 'Age' ] = predictedAges
+
+        return 0
+
+    def set_missing_fare(self, data):
+        data.loc[(data.Fare.isnull()), 'Fare'] = 0
+
+    def set_Cabin_type(self, data):
+        data.loc[ (data.Cabin.notnull()), 'Cabin' ] = "Yes"
+        data.loc[ (data.Cabin.isnull()), 'Cabin' ] = "No"
+
+    def trans_Cabin(self, data):
     
-    # 用得到的预测结果填补原缺失数据
-    data.loc[ (data.Age.isna()), 'Age' ] = predictedAges 
+        dummies_Cabin = pd.get_dummies(data['Cabin'], prefix= 'Cabin')
 
-def set_Cabin_type(data):
-    data.loc[ (data.Cabin.notnull()), 'Cabin' ] = "Yes"
-    data.loc[ (data.Cabin.isnull()), 'Cabin' ] = "No"
+        dummies_Embarked = pd.get_dummies(data['Embarked'], prefix= 'Embarked')
 
-def trans_Cabin(data):
-    
-    dummies_Cabin = pd.get_dummies(data['Cabin'], prefix= 'Cabin')
+        dummies_Sex = pd.get_dummies(data['Sex'], prefix= 'Sex')
 
-    dummies_Embarked = pd.get_dummies(data['Embarked'], prefix= 'Embarked')
+        dummies_Pclass = pd.get_dummies(data['Pclass'], prefix= 'Pclass')
 
-    dummies_Sex = pd.get_dummies(data['Sex'], prefix= 'Sex')
+        dummies_data = pd.concat([data, dummies_Cabin, dummies_Embarked, dummies_Sex, dummies_Pclass], axis=1)
+        dummies_data.drop(['Pclass', 'Name', 'Sex', 'Ticket', 'Cabin', 'Embarked'], axis=1, inplace=True)
 
-    dummies_Pclass = pd.get_dummies(data['Pclass'], prefix= 'Pclass')
+        return dummies_data
 
-    df = pd.concat([data, dummies_Cabin, dummies_Embarked, dummies_Sex, dummies_Pclass], axis=1)
-    df.drop(['Pclass', 'Name', 'Sex', 'Ticket', 'Cabin', 'Embarked'], axis=1, inplace=True)
+    def scale_data(self, data, scaler = None):
 
-    return df
+        age_1d = data['Age'].values.reshape(-1, 1)
+        fare_1d = data['Fare'].values.reshape(-1, 1)
 
-def scale_df(df):
+        if(scaler is not None):
+            self.age_scale_param = self.scaler.fit(age_1d)
+            self.fare_scale_param = self.scaler.fit(fare_1d)
 
-    global age_scale_param
-    global fare_scale_param
+        data['Age_scaled'] = self.scaler.fit_transform(age_1d, self.age_scale_param)
+        data['Fare_scaled'] = self.scaler.fit_transform(fare_1d, self.fare_scale_param)
 
-    #Age = data.iloc['Age'].values
+        return data
 
-    scaler = preprocessing.StandardScaler()
+    def linear(self, data):
+        train_df = data.filter(regex='Survived|Age_.*|SibSp|Parch|Fare_.*|Cabin_.*|Embarked_.*|Sex_.*|Pclass_.*')
+        train_np = train_df.values
 
-    if(run == 0):
-        age_scale_param = scaler.fit(df['Age'])
-        fare_scale_param = scaler.fit(df['Fare'])
+        # y即Survival结果
+        y = train_np[:, 0]
 
-    df['Age_scaled'] = scaler.fit_transform(df['Age'].values.reshape(-1, 1), age_scale_param)
-    df['Fare_scaled'] = scaler.fit_transform(df['Fare'].values.reshape(-1, 1), fare_scale_param)
+        # X即特征属性值
+        X = train_np[:, 1:]
 
-def linear(df):
-    train_df = df.filter(regex='Survived|Age_.*|SibSp|Parch|Fare_.*|Cabin_.*|Embarked_.*|Sex_.*|Pclass_.*')
-    train_np = train_df.values
+        # fit到RandomForestRegressor之中
+        self.clf = linear_model.LogisticRegression(C=1.0, penalty='l1', tol=1e-6, solver='liblinear')
+        self.clf.fit(X, y)
 
-    # y即Survival结果
-    y = train_np[:, 0]
-
-    # X即特征属性值
-    X = train_np[:, 1:]
-
-    # fit到RandomForestRegressor之中
-    clf = linear_model.LogisticRegression(C=1.0, penalty='l1', tol=1e-6)
-    clf.fit(X, y)
-
-    return clf
-
-def pre_processing(data):
-
-    global run
-
-    set_missing_ages(data)
-
-    set_Cabin_type(data)
-
-    df = trans_Cabin(data)
-
-    scale_df(df)
-
-    return df
-
+    def predict_survived(self, data):
+        test_df = data.filter(regex='Age_.*|SibSp|Parch|Fare_.*|Cabin_.*|Embarked_.*|Sex_.*|Pclass_.*')
+        predictions = self.clf.predict(test_df)
+        result = pd.DataFrame({'PassengerId':self.test['PassengerId'].values, 'Survived':predictions.astype(np.int32)})
+        result.to_csv("./gender_submission.csv", index=False)
+        
 
 if __name__ == "__main__":
 
-    global rfr
+    titanic = Titanic()
 
-    global run
+    titanic.train_data()
 
-    global age_scale_param
-    global fare_scale_param
+    titanic.test_data()
 
-    age_scale_param = None
-    fare_scale_param = None
-
-    rfr = RandomForestRegressor(random_state=0, n_estimators=2000, n_jobs=-1)
-   
-    run = 0
-
-    train, test = read_data();
-
-    #train
-    df = pre_processing(train)
-
-    clf = linear(df)
-
-    #test
-    #print(test.info())
-    test.loc[ (test.Fare.isnull()), 'Fare' ] = 0
-
-    test_df = pre_processing(test)
-
-
-    test_df = test_df.filter(regex='Age_.*|SibSp|Parch|Fare_.*|Cabin_.*|Embarked_.*|Sex_.*|Pclass_.*')
-    predictions = clf.predict(test_df)
-    result = pd.DataFrame({'PassengerId':test['PassengerId'].values, 'Survived':predictions.astype(np.int32)})
-    result.to_csv("./gender_submission.csv", index=False)
+    print("Done")
