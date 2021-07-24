@@ -50,10 +50,10 @@ class Titanic():
 
         y = known_age[:, 0]
 
-        if(rfr == None):
+        if rfr is None:
             X = known_age[:, 1:]
             self.rfr.fit(X, y)
-        else :
+        else:
             X = unknown_age[:, 1:]
 
         predictedAges = self.rfr.predict(unknown_age[:, 1:])
